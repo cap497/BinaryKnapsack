@@ -1,17 +1,18 @@
 import os
 import time
+import sys
 import psutil
 import csv
 import gc
 import argparse
 import multiprocessing
-from typing import List, Tuple, Optional
+import threading
 
 # ============================
-# Funções de Leitura de Instâncias
+# Funções de Leitura
 # ============================
 
-def read_knapsack_instance(csv_file: str) -> Tuple[List[int], List[int], int]:
+def read_instance(csv_file: str):
     values, weights = [], []
     with open(csv_file, 'r') as f:
         reader = csv.DictReader(f)
@@ -34,15 +35,15 @@ def read_knapsack_instance(csv_file: str) -> Tuple[List[int], List[int], int]:
         raise ValueError(f"Capacidade (c) não encontrada em {info_file}")
     return values, weights, capacity
 
-def read_knapsack_text(file_path: str) -> Tuple[List[int], List[int], int]:
+def read_text(file_path: str):
     with open(file_path, 'r') as f:
         lines = f.readlines()
-        n, capacity = map(int, lines[0].split())
-        items = [tuple(map(lambda x: int(float(x)), line.split())) for line in lines[1:]]
+        n, capacity = map(float, lines[0].split())
+        items = [tuple(map(float, line.split())) for line in lines[1:]]
         values, weights = zip(*items)
         return list(values), list(weights), capacity
 
-def get_optimal_solution(instance_name: str, opt_directory: Optional[str], directory: str) -> Optional[float]:
+def get_optimal(instance_name, opt_directory, directory):
     if opt_directory:
         opt_file = os.path.join(opt_directory, instance_name)
         if os.path.exists(opt_file):
@@ -63,36 +64,11 @@ def get_optimal_solution(instance_name: str, opt_directory: Optional[str], direc
 # Algoritmos
 # ============================
 
-def branch_and_bound_knapsack(values: List[int], weights: List[int], capacity: int) -> Tuple[int, List[int], float, float]:
-    n = len(values)
-    best_value = 0
-    best_solution = [0] * n
-
-    def knapsack_helper(value: int, weight: int, index: int, solution: List[int]):
-        nonlocal best_value, best_solution
-        if weight <= capacity and value > best_value:
-            best_value = value
-            best_solution = solution[:]
-        if index >= n or weight >= capacity:
-            return
-        knapsack_helper(value, weight, index + 1, solution)
-        if weight + weights[index] <= capacity:
-            solution[index] = 1
-            knapsack_helper(value + values[index], weight + weights[index], index + 1, solution)
-            solution[index] = 0
-
-    initial_solution = [0] * n
-    start_time = time.time()
-    knapsack_helper(0, 0, 0, initial_solution)
-    process = psutil.Process(os.getpid())
-    memory = process.memory_info().rss / 1024 ** 2
-    return best_value, best_solution, time.time() - start_time, memory
-
-def new_2approx_knapsack(values: List[int], weights: List[int], capacity: int) -> Tuple[int, List[int], float, float]:
+def new_2approx(values, weights, capacity):
     n = len(values)
     if n == 0 or capacity <= 0:
         return 0, [0] * n, 0, 0
-    items = sorted(range(n), key=lambda i: values[i] / weights[i], reverse=True)
+    items = sorted(range(n), key=lambda i: (values[i] / weights[i]) if weights[i] != 0 else float('inf'), reverse=True)
     total_value = 0
     solution = [0] * n
     remaining_capacity = capacity
@@ -106,7 +82,7 @@ def new_2approx_knapsack(values: List[int], weights: List[int], capacity: int) -
     memory = process.memory_info().rss / 1024 ** 2
     return total_value, solution, time.time() - start_time, memory
 
-def fptas_knapsack(values: List[int], weights: List[int], capacity: int, epsilon: float) -> Tuple[int, List[int], float, float]:
+def fptas(values, weights, capacity, epsilon):
     n = len(values)
     start_time = time.time()
 
@@ -135,14 +111,328 @@ def fptas_knapsack(values: List[int], weights: List[int], capacity: int, epsilon
     memory = process.memory_info().rss / 1024 ** 2
     return total_value, item_choice[best_scaled_value], time.time() - start_time, memory
 
+def branch_and_bound(values, weights, capacity):
+    n = len(values)
+    items = sorted(range(n), key=lambda i: values[i] / weights[i], reverse=True)
+    best_value = 0.0
+    best_solution = [0] * n
+    start_time = time.time()
+    process = psutil.Process(os.getpid())
+
+    def bound(index, current_weight, current_value):
+        remaining_capacity = capacity - current_weight
+        bound_value = current_value
+        for i in range(index, n):
+            item = items[i]
+            if weights[item] <= remaining_capacity:
+                remaining_capacity -= weights[item]
+                bound_value += values[item]
+            else:
+                bound_value += values[item] * (remaining_capacity / weights[item])
+                break
+        return bound_value
+
+    def dfs(index, current_weight, current_value, solution):
+        nonlocal best_value, best_solution
+        if current_weight > capacity:
+            return
+        if current_value > best_value:
+            best_value = current_value
+            best_solution = solution[:]
+        if index >= n:
+            return
+        if bound(index, current_weight, current_value) <= best_value:
+            return
+        item = items[index]
+        solution[item] = 1
+        dfs(index + 1, current_weight + weights[item], current_value + values[item], solution)
+        solution[item] = 0
+        dfs(index + 1, current_weight, current_value, solution)
+
+    dfs(0, 0.0, 0.0, [0] * n)
+    total_time = time.time() - start_time
+    memory = process.memory_info().rss / 1024 ** 2
+    return best_value, best_solution, total_time, memory
+
+def branch_and_bound_naive(values, weights, capacity):
+    n = len(values)
+    items = list(range(n))
+    best_value = 0.0
+    best_solution = [0] * n
+    start_time = time.time()
+    process = psutil.Process(os.getpid())
+
+    def bound(index, current_weight, current_value):
+        remaining_capacity = capacity - current_weight
+        bound_value = current_value
+        for i in range(index, n):
+            item = items[i]
+            if weights[item] <= remaining_capacity:
+                remaining_capacity -= weights[item]
+                bound_value += values[item]
+            else:
+                bound_value += values[item] * (remaining_capacity / weights[item])
+                break
+        return bound_value
+
+    def dfs(index, current_weight, current_value, solution):
+        nonlocal best_value, best_solution
+        if current_weight > capacity:
+            return
+        if current_value > best_value:
+            best_value = current_value
+            best_solution = solution[:]
+        if index >= n:
+            return
+        if bound(index, current_weight, current_value) <= best_value:
+            return
+        item = items[index]
+        solution[item] = 1
+        dfs(index + 1, current_weight + weights[item], current_value + values[item], solution)
+        solution[item] = 0
+        dfs(index + 1, current_weight, current_value, solution)
+
+    dfs(0, 0.0, 0.0, [0] * n)
+    total_time = time.time() - start_time
+    memory = process.memory_info().rss / 1024 ** 2
+    return best_value, best_solution, total_time, memory
+
+def backtracking(values, weights, capacity):
+    n = len(values)
+    best_value = 0
+    best_solution = [0] * n
+    start_time = time.time()
+    process = psutil.Process(os.getpid())
+
+    def dfs(index, current_weight, current_value, solution):
+        nonlocal best_value, best_solution
+        if current_weight > capacity:
+            return
+        if current_value > best_value:
+            best_value = current_value
+            best_solution = solution[:]
+        if index >= n:
+            return
+        # Escolhe o item
+        solution[index] = 1
+        dfs(index + 1, current_weight + weights[index], current_value + values[index], solution)
+        # Não escolhe o item
+        solution[index] = 0
+        dfs(index + 1, current_weight, current_value, solution)
+
+    dfs(0, 0, 0, [0] * n)
+    total_time = time.time() - start_time
+    memory = process.memory_info().rss / 1024 ** 2
+    return best_value, best_solution, total_time, memory
+
+# ============================
+# Execução de Algoritmos Individuais
+# ============================
+
+def run_2approx(instance_name, values, weights, capacity, bb_optimal):
+    gc.collect()
+    stop_event = threading.Event()
+    timer_thread = threading.Thread(target=start_timer, args=(f"[{instance_name} - 2-Approx]", stop_event))
+    timer_thread.start()
+
+    try:
+        start_time = time.time()
+        approx_value, approx_solution, approx_time, approx_memory = new_2approx(values, weights, capacity)
+        total_time = time.time() - start_time
+    except KeyboardInterrupt:
+        stop_event.set()
+        timer_thread.join()
+        sys.stdout.write('\r' + ' ' * 80 + '\r')
+        sys.stdout.flush()
+        print(f"\n[{instance_name}] Execução interrompida pelo usuário (Ctrl+C) durante 2-Approx.\n")
+        raise
+
+    stop_event.set()
+    timer_thread.join()
+
+    approx_factor = (bb_optimal / approx_value) if (bb_optimal is not None and approx_value > 0) else None
+
+    print(f"[{instance_name}]\t         2-Approx: \tVal = {approx_value:10.2f},   Time = {approx_time:6.2f}s,   Mem = {approx_memory:6.2f}MB,   Approx = {approx_factor:.2f}")
+
+    return {
+        'Instance': instance_name,
+        'Algorithm': '2-Approx',
+        'Value': approx_value,
+        'Optimal': bb_optimal,
+        'Approx Factor': approx_factor,
+        'Time (s)': approx_time,
+        'Memory (MB)': approx_memory
+    }
+
+def run_fptas(instance_name, values, weights, capacity, epsilon, bb_optimal):
+    gc.collect()
+    stop_event = threading.Event()
+    timer_thread = threading.Thread(target=start_timer, args=(f"[{instance_name} - FPTAS ε={epsilon}]", stop_event))
+    timer_thread.start()
+
+    try:
+        start_time = time.time()
+        fptas_value, fptas_solution, fptas_time, fptas_memory = fptas(values, weights, capacity, epsilon)
+        total_time = time.time() - start_time
+    except KeyboardInterrupt:
+        stop_event.set()
+        timer_thread.join()
+        sys.stdout.write('\r' + ' ' * 80 + '\r')
+        sys.stdout.flush()
+        print(f"\n[{instance_name}] Execução interrompida pelo usuário (Ctrl+C) durante FPTAS (ε={epsilon}).\n")
+        raise
+
+    stop_event.set()
+    timer_thread.join()
+
+    approx_factor = (bb_optimal / fptas_value) if (bb_optimal is not None and fptas_value > 0) else None
+
+    print(f"[{instance_name}]\t FPTAS (eps={epsilon:.2f}): \tVal = {fptas_value:10.2f},   Time = {fptas_time:6.2f}s,   Mem = {fptas_memory:6.2f}MB,   Approx = {approx_factor:.2f}")
+
+    return {
+        'Instance': instance_name,
+        'Algorithm': f'FPTAS (eps={epsilon})',
+        'Value': fptas_value,
+        'Optimal': bb_optimal,
+        'Approx Factor': approx_factor,
+        'Time (s)': fptas_time,
+        'Memory (MB)': fptas_memory
+    }
+
+def run_branch_and_bound(instance_name, values, weights, capacity, bb_optimal):
+    gc.collect()
+
+    # Inicia o cronômetro em uma thread separada
+    stop_event = threading.Event()
+    timer_thread = threading.Thread(target=start_timer, args=(f"[{instance_name} - BB]", stop_event))
+    timer_thread.start()
+
+    try:
+        start_time = time.time()
+        bb_value, bb_solution, bb_time, bb_memory = branch_and_bound(values, weights, capacity)
+        total_time = time.time() - start_time
+    except KeyboardInterrupt:
+        stop_event.set()
+        timer_thread.join()
+        # Limpa a linha pendente
+        sys.stdout.write('\r' + ' ' * 80 + '\r')
+        sys.stdout.flush()
+        print(f"\n[{instance_name}] Execução interrompida pelo usuário (Ctrl+C) durante BB.\n")
+        raise  # Repassa o KeyboardInterrupt para o processo pai (se quiser manter o comportamento padrão)
+
+    # Para o cronômetro
+    stop_event.set()
+    timer_thread.join()
+
+    approx_factor = (bb_optimal / bb_value) if (bb_optimal is not None and bb_value > 0) else None
+
+    print(f"[{instance_name}]\t               BB: \tVal = {bb_value:10.2f},   Time = {bb_time:6.2f}s,   Mem = {bb_memory:6.2f}MB,   Approx = {approx_factor:.2f}")
+
+    return {
+        'Instance': instance_name,
+        'Algorithm': f'BB',
+        'Value': bb_value,
+        'Optimal': bb_optimal,
+        'Approx Factor': approx_factor,
+        'Time (s)': bb_time,
+        'Memory (MB)': bb_memory
+    }
+
+def run_branch_and_bound_naive(instance_name, values, weights, capacity, bb_optimal):
+    gc.collect()
+
+    # Inicia o cronômetro em uma thread separada
+    stop_event = threading.Event()
+    timer_thread = threading.Thread(target=start_timer, args=(f"[{instance_name} - BB]", stop_event))
+    timer_thread.start()
+
+    try:
+        start_time = time.time()
+        bb_value, bb_solution, bb_time, bb_memory = branch_and_bound(values, weights, capacity)
+        total_time = time.time() - start_time
+    except KeyboardInterrupt:
+        stop_event.set()
+        timer_thread.join()
+        # Limpa a linha pendente
+        sys.stdout.write('\r' + ' ' * 80 + '\r')
+        sys.stdout.flush()
+        print(f"\n[{instance_name}] Execução interrompida pelo usuário (Ctrl+C) durante BB.\n")
+        raise  # Repassa o KeyboardInterrupt para o processo pai (se quiser manter o comportamento padrão)
+
+    # Para o cronômetro
+    stop_event.set()
+    timer_thread.join()
+
+    approx_factor = (bb_optimal / bb_value) if (bb_optimal is not None and bb_value > 0) else None
+
+    print(f"[{instance_name}]\t         BB Naive: \tVal = {bb_value:10.2f},   Time = {bb_time:6.2f}s,   Mem = {bb_memory:6.2f}MB,   Approx = {approx_factor:.2f}")
+
+    return {
+        'Instance': instance_name,
+        'Algorithm': f'BB',
+        'Value': bb_value,
+        'Optimal': bb_optimal,
+        'Approx Factor': approx_factor,
+        'Time (s)': bb_time,
+        'Memory (MB)': bb_memory
+    }
+
+def run_backtracking(instance_name, values, weights, capacity, bb_optimal):
+    import gc
+    gc.collect()
+
+    # Inicia o cronômetro em uma thread separada
+    stop_event = threading.Event()
+    timer_thread = threading.Thread(target=start_timer, args=(f"[{instance_name} - Backtracking]", stop_event))
+    timer_thread.start()
+
+    try:
+        start_time = time.time()
+        bt_value, bt_solution, bt_time, bt_memory = backtracking(values, weights, capacity)
+        total_time = time.time() - start_time
+    except KeyboardInterrupt:
+        stop_event.set()
+        timer_thread.join()
+        sys.stdout.write('\r' + ' ' * 80 + '\r')
+        sys.stdout.flush()
+        print(f"\n[{instance_name}] Execução interrompida pelo usuário (Ctrl+C) durante Backtracking.\n")
+        raise
+
+    # Para o cronômetro
+    stop_event.set()
+    timer_thread.join()
+
+    # Calcula fator de aproximação se possível
+    approx_factor = (bb_optimal / bt_value) if (bb_optimal is not None and bt_value > 0) else None
+
+    print(f"[{instance_name}]\t     Backtracking: \tVal = {bt_value:10.2f},   Time = {bt_time:6.2f}s,   Mem = {bt_memory:6.2f}MB,   Approx = {approx_factor:.2f}")
+
+    return {
+        'Instance': instance_name,
+        'Algorithm': 'Backtracking',
+        'Value': bt_value,
+        'Optimal': bb_optimal,
+        'Approx Factor': approx_factor,
+        'Time (s)': bt_time,
+        'Memory (MB)': bt_memory
+    }
+
 # ============================
 # Processamento de uma Instância
 # ============================
 
-def format_approx(factor):
-    return f"{factor:.4f}" if factor is not None else "N/A"
+def start_timer(message, stop_event):
+    start = time.time()
+    while not stop_event.is_set():
+        elapsed = time.time() - start
+        sys.stdout.write(f"\r{message} Run Time: {elapsed:.0f}s")
+        sys.stdout.flush()
+        time.sleep(1)
+    # Limpa a linha ao final
+    sys.stdout.write('\r' + ' ' * 80 + '\r')
+    sys.stdout.flush()
 
-def process_single_instance(filename: str, directory: str, opt_directory: Optional[str], single_instance: Optional[str], result_queue):
+def process_instance(filename, directory, opt_directory, single_instance, result_queue):
     try:
         full_path = os.path.join(directory, filename)
 
@@ -151,69 +441,41 @@ def process_single_instance(filename: str, directory: str, opt_directory: Option
             instance_name = filename.replace('_items.csv', '')
             if single_instance and instance_name != single_instance:
                 return
-            print(f"[{instance_name}] Lendo instância LARGE SCALE...")
-            values, weights, capacity = read_knapsack_instance(full_path)
+            print(f"[{instance_name}] LARGE SCALE")
+            values, weights, capacity = read_instance(full_path)
         elif not filename.endswith('.csv'):
             instance_name = filename
             if single_instance and instance_name != single_instance:
                 return
-            print(f"[{instance_name}] Lendo instância LOW DIMENSIONAL...")
-            values, weights, capacity = read_knapsack_text(full_path)
+            print(f"[{instance_name}] LOW DIMENSIONAL")
+            values, weights, capacity = read_text(full_path)
         else:
             return
 
-        bb_optimal = get_optimal_solution(instance_name, opt_directory, directory)
+        bb_optimal = get_optimal(instance_name, opt_directory, directory)
         if bb_optimal is not None:
-            print(f"[{instance_name}] Ótimo conhecido: {bb_optimal}")
+            print(f"[{instance_name}]\t \t\t\tOpt = {bb_optimal:10.2f}")
 
-        # === Novo 2-Approx ===
-        print(f"[{instance_name}] Iniciando Novo 2-Aproximativo...")
-        gc.collect()
-        approx_value, approx_solution, approx_time, approx_memory = new_2approx_knapsack(values, weights, capacity)
-        approx_approx_factor = (bb_optimal / approx_value) if bb_optimal and approx_value > 0 else None
-        result_queue.put({
-            'Instance': instance_name,
-            'Algorithm': '2-Approx',
-            'Value': approx_value,
-            'Optimal': bb_optimal,
-            'Approx Factor': approx_approx_factor,
-            'Time (s)': approx_time,
-            'Memory (MB)': approx_memory
-        })
-        print(f"[{instance_name}] Resultado - 2-Approx: Valor={approx_value}, Tempo={approx_time:.2f}s, Memória={approx_memory:.2f}MB, Aproximação={format_approx(approx_approx_factor)}")
+        # === Executa 2-Approx ===
+        result = run_2approx(instance_name, values, weights, capacity, bb_optimal)
+        result_queue.put(result)
 
-        # === FPTAS com diferentes eps ===
-        for epsilon in [2.0, 1.0, 0.5, 0.1]:
-            print(f"[{instance_name}] Iniciando FPTAS com eps={epsilon}...")
-            gc.collect()
-            fptas_value, fptas_solution, fptas_time, fptas_memory = fptas_knapsack(values, weights, capacity, epsilon)
-            fptas_approx_factor = (bb_optimal / fptas_value) if bb_optimal and fptas_value > 0 else None
-            result_queue.put({
-                'Instance': instance_name,
-                'Algorithm': f'FPTAS (eps={epsilon})',
-                'Value': fptas_value,
-                'Optimal': bb_optimal,
-                'Approx Factor': fptas_approx_factor,
-                'Time (s)': fptas_time,
-                'Memory (MB)': fptas_memory
-            })
-            print(f"[{instance_name}] Resultado - FPTAS (eps={epsilon}): Valor={fptas_value}, Tempo={fptas_time:.2f}s, Memória={fptas_memory:.2f}MB, Aproximação={format_approx(fptas_approx_factor)}")
+        # === Executa FPTAS com diferentes epsilons ===
+        for epsilon in [3, 2, 1]:
+            result = run_fptas(instance_name, values, weights, capacity, epsilon, bb_optimal)
+            result_queue.put(result)
 
-        # === Branch-and-Bound ===
-        print(f"[{instance_name}] Iniciando Branch-and-Bound...")
-        gc.collect()
-        bb_value, bb_solution, bb_time, bb_memory = branch_and_bound_knapsack(values, weights, capacity)
-        bb_approx_factor = (bb_optimal / bb_value) if bb_optimal and bb_value > 0 else None
-        result_queue.put({
-            'Instance': instance_name,
-            'Algorithm': 'Branch-and-Bound',
-            'Value': bb_value,
-            'Optimal': bb_optimal,
-            'Approx Factor': bb_approx_factor,
-            'Time (s)': bb_time,
-            'Memory (MB)': bb_memory
-        })
-        print(f"[{instance_name}] Resultado - Branch-and-Bound: Valor={bb_value}, Tempo={bb_time:.2f}s, Memória={bb_memory:.2f}MB, Aproximação={format_approx(bb_approx_factor)}")
+        # === Executa Branch-and-Bound ===
+        result = run_branch_and_bound(instance_name, values, weights, capacity, bb_optimal)
+        result_queue.put(result)
+
+        # === Executa Branch-and-Bound Ingenuo ===
+        result = run_branch_and_bound_naive(instance_name, values, weights, capacity, bb_optimal)
+        result_queue.put(result)
+
+        # === Executa Backtracking ===
+        result = run_backtracking(instance_name, values, weights, capacity, bb_optimal)
+        result_queue.put(result)
 
     except Exception as e:
         print(f"[{filename}] ERRO: {e}")
@@ -222,9 +484,9 @@ def process_single_instance(filename: str, directory: str, opt_directory: Option
 # Avaliação de Instâncias
 # ============================
 
-def evaluate_instances(directory: str, opt_directory: Optional[str] = None, single_instance: Optional[str] = None):
+def evaluate_instances(directory, opt_directory = None, single_instance = None):
     results = []
-    TIME_LIMIT = 180  # 3 minutos por instância
+    TIME_LIMIT = 1800  # Tempo limite de 30 minutos
 
     for filename in os.listdir(directory):
         is_large_scale = filename.endswith('_items.csv')
@@ -233,12 +495,13 @@ def evaluate_instances(directory: str, opt_directory: Optional[str] = None, sing
             continue
 
         result_queue = multiprocessing.Queue()
-        p = multiprocessing.Process(target=process_single_instance, args=(filename, directory, opt_directory, single_instance, result_queue))
+        p = multiprocessing.Process(target=process_instance, args=(filename, directory, opt_directory, single_instance, result_queue))
         p.start()
         p.join(TIME_LIMIT)
 
         if p.is_alive():
-            print(f"[{filename}] TIMEOUT: Excedeu o limite de {TIME_LIMIT/60} minutos. Processo abortado.")
+            instance_name = filename.replace('_items.csv', '') if is_large_scale else filename
+            print(f"\n[{instance_name}] TIMEOUT: Excedeu o limite de {int(TIME_LIMIT/60)} minutos. Processo abortado.")
             p.terminate()
             p.join()
         else:
