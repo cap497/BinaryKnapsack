@@ -154,49 +154,6 @@ def branch_and_bound(values, weights, capacity):
     memory = process.memory_info().rss / 1024 ** 2
     return best_value, best_solution, total_time, memory
 
-def branch_and_bound_naive(values, weights, capacity):
-    n = len(values)
-    items = list(range(n))
-    best_value = 0.0
-    best_solution = [0] * n
-    start_time = time.time()
-    process = psutil.Process(os.getpid())
-
-    def bound(index, current_weight, current_value):
-        remaining_capacity = capacity - current_weight
-        bound_value = current_value
-        for i in range(index, n):
-            item = items[i]
-            if weights[item] <= remaining_capacity:
-                remaining_capacity -= weights[item]
-                bound_value += values[item]
-            else:
-                bound_value += values[item] * (remaining_capacity / weights[item])
-                break
-        return bound_value
-
-    def dfs(index, current_weight, current_value, solution):
-        nonlocal best_value, best_solution
-        if current_weight > capacity:
-            return
-        if current_value > best_value:
-            best_value = current_value
-            best_solution = solution[:]
-        if index >= n:
-            return
-        if bound(index, current_weight, current_value) <= best_value:
-            return
-        item = items[index]
-        solution[item] = 1
-        dfs(index + 1, current_weight + weights[item], current_value + values[item], solution)
-        solution[item] = 0
-        dfs(index + 1, current_weight, current_value, solution)
-
-    dfs(0, 0.0, 0.0, [0] * n)
-    total_time = time.time() - start_time
-    memory = process.memory_info().rss / 1024 ** 2
-    return best_value, best_solution, total_time, memory
-
 def backtracking(values, weights, capacity):
     n = len(values)
     best_value = 0
@@ -326,46 +283,7 @@ def run_branch_and_bound(instance_name, values, weights, capacity, bb_optimal):
 
     approx_factor = (bb_optimal / bb_value) if (bb_optimal is not None and bb_value > 0) else None
 
-    print(f"[{instance_name}]\t               BB: \tVal = {bb_value:10.2f},   Time = {bb_time:6.2f}s,   Mem = {bb_memory:6.2f}MB,   Approx = {approx_factor:.2f}")
-
-    return {
-        'Instance': instance_name,
-        'Algorithm': f'BB',
-        'Value': bb_value,
-        'Optimal': bb_optimal,
-        'Approx Factor': approx_factor,
-        'Time (s)': bb_time,
-        'Memory (MB)': bb_memory
-    }
-
-def run_branch_and_bound_naive(instance_name, values, weights, capacity, bb_optimal):
-    gc.collect()
-
-    # Inicia o cronômetro em uma thread separada
-    stop_event = threading.Event()
-    timer_thread = threading.Thread(target=start_timer, args=(f"[{instance_name} - BB]", stop_event))
-    timer_thread.start()
-
-    try:
-        start_time = time.time()
-        bb_value, bb_solution, bb_time, bb_memory = branch_and_bound(values, weights, capacity)
-        total_time = time.time() - start_time
-    except KeyboardInterrupt:
-        stop_event.set()
-        timer_thread.join()
-        # Limpa a linha pendente
-        sys.stdout.write('\r' + ' ' * 80 + '\r')
-        sys.stdout.flush()
-        print(f"\n[{instance_name}] Execução interrompida pelo usuário (Ctrl+C) durante BB.\n")
-        raise  # Repassa o KeyboardInterrupt para o processo pai (se quiser manter o comportamento padrão)
-
-    # Para o cronômetro
-    stop_event.set()
-    timer_thread.join()
-
-    approx_factor = (bb_optimal / bb_value) if (bb_optimal is not None and bb_value > 0) else None
-
-    print(f"[{instance_name}]\t         BB Naive: \tVal = {bb_value:10.2f},   Time = {bb_time:6.2f}s,   Mem = {bb_memory:6.2f}MB,   Approx = {approx_factor:.2f}")
+    print(f"[{instance_name}]\t   Branch & Bound: \tVal = {bb_value:10.2f},   Time = {bb_time:6.2f}s,   Mem = {bb_memory:6.2f}MB,   Approx = {approx_factor:.2f}")
 
     return {
         'Instance': instance_name,
@@ -461,16 +379,12 @@ def process_instance(filename, directory, opt_directory, single_instance, result
         result_queue.put(result)
 
         # === Executa FPTAS com diferentes epsilons ===
-        for epsilon in [3, 2, 1]:
+        for epsilon in [3, 2, 1, 0.5, 0.25]:
             result = run_fptas(instance_name, values, weights, capacity, epsilon, bb_optimal)
             result_queue.put(result)
 
         # === Executa Branch-and-Bound ===
         result = run_branch_and_bound(instance_name, values, weights, capacity, bb_optimal)
-        result_queue.put(result)
-
-        # === Executa Branch-and-Bound Ingenuo ===
-        result = run_branch_and_bound_naive(instance_name, values, weights, capacity, bb_optimal)
         result_queue.put(result)
 
         # === Executa Backtracking ===
@@ -486,7 +400,7 @@ def process_instance(filename, directory, opt_directory, single_instance, result
 
 def evaluate_instances(directory, opt_directory = None, single_instance = None):
     results = []
-    TIME_LIMIT = 1800  # Tempo limite de 30 minutos
+    TIME_LIMIT = 180  # Tempo limite de 30 minutos
 
     for filename in os.listdir(directory):
         is_large_scale = filename.endswith('_items.csv')
