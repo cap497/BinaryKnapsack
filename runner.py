@@ -1,14 +1,12 @@
-import sys
 import os
-import gc
+import sys
 import threading
 import multiprocessing
 import time
+import gc
 
 from algorithms import new_2approx, fptas, branch_and_bound, backtracking
 from io_utils import (
-    read_instance,
-    read_text,
     get_optimal,
     parse_instance_name,
     load_instance_file,
@@ -18,11 +16,46 @@ from utils import start_timer, print_table_header
 
 TIME_LIMIT = 1800  # segundos
 
+
+# ----------------------------------------
+# Helpers de Impressão
+# ----------------------------------------
+
+def print_result_row(algo_name, eps_value, value, algo_time, memory, approx_factor):
+    """
+    Formata e imprime uma linha de resultado na tabela.
+    """
+    eps_str = f"{eps_value:8.2f}" if eps_value is not None else " " * 8
+    val_str = f"{value:8.0f}" if value != 'NA' else f"{'NA':>8}"
+    time_str = f"{algo_time:10.2f}" if algo_time != 'NA' else f"{'NA':>10}"
+    mem_str = f"{memory:10.2f}" if memory != 'NA' else f"{'NA':>10}"
+    approx_str = f"{approx_factor:8.2f}" if approx_factor != 'NA' else f"{'NA':>8}"
+    print(f"{algo_name:>20} {eps_str} {val_str} {time_str} {mem_str} {approx_str}")
+
+
+def print_instance_banner(instance_type, n_items, capacity_instance, bb_optimal):
+    """
+    Imprime o banner de informações da instância.
+    """
+    print(f"\n\n{instance_type}")
+    print("=" * 100)
+    print(f"N_Items = {n_items}")
+    print(f"W_Max   = {capacity_instance}")
+    if bb_optimal is not None:
+        print(f"Optimum = {bb_optimal:.0f}")
+    print("=" * 100)
+    print()
+
+
+# ----------------------------------------
+# Execução genérica com timer
+# ----------------------------------------
+
 def run_algorithm_generic(algorithm_func, algo_name, instance_name, values, weights, capacity,
                           bb_optimal, n_items, capacity_instance,
                           extra_args=None, timer_label=None):
     """
-    Roda qualquer algoritmo com timer e coleta de memória.
+    Executa qualquer algoritmo com temporizador e coleta de métricas.
     """
     gc.collect()
 
@@ -32,7 +65,6 @@ def run_algorithm_generic(algorithm_func, algo_name, instance_name, values, weig
     timer_thread.start()
 
     try:
-        start_time = time.time()
         if extra_args:
             value, solution, algo_time, memory = algorithm_func(values, weights, capacity, *extra_args)
         else:
@@ -49,15 +81,13 @@ def run_algorithm_generic(algorithm_func, algo_name, instance_name, values, weig
     timer_thread.join()
 
     approx_factor = (bb_optimal / value) if (bb_optimal is not None and value > 0) else None
-    eps_value = extra_args[0] if extra_args else None
-    eps_str = f"{eps_value:8.2f}" if eps_value is not None else " " * 8
-    print(f"{algo_name:>20} {eps_str} {value:8.0f} {algo_time:10.2f} {memory:10.2f} {approx_factor:8.2f}")
+    print_result_row(algo_name, extra_args[0] if extra_args else None, value, algo_time, memory, approx_factor)
 
     return {
         'Instance': instance_name,
         'Items': n_items,
         'Capacity': capacity_instance,
-        'Algorithm': algo_name if eps_value is None else f'{algo_name} (eps={eps_value})',
+        'Algorithm': algo_name if not extra_args else f'{algo_name} (eps={extra_args[0]})',
         'Value': value,
         'Optimal': bb_optimal,
         'Approx Factor': approx_factor,
@@ -66,6 +96,10 @@ def run_algorithm_generic(algorithm_func, algo_name, instance_name, values, weig
     }
 
 
+# ----------------------------------------
+# Dispatch de algoritmo
+# ----------------------------------------
+
 def run_algorithm(algo_name, eps, instance_name, values, weights, capacity,
                    bb_optimal, n_items, capacity_instance, queue):
     """
@@ -73,27 +107,23 @@ def run_algorithm(algo_name, eps, instance_name, values, weights, capacity,
     """
     try:
         if algo_name == '2-Approx':
-            res = run_algorithm_generic(
-                new_2approx, "2-Approx", instance_name, values, weights, capacity,
-                bb_optimal, n_items, capacity_instance
-            )
+            res = run_algorithm_generic(new_2approx, "2-Approx", instance_name,
+                                        values, weights, capacity,
+                                        bb_optimal, n_items, capacity_instance)
         elif algo_name == 'FPTAS':
-            res = run_algorithm_generic(
-                fptas, "FPTAS", instance_name, values, weights, capacity,
-                bb_optimal, n_items, capacity_instance,
-                extra_args=[eps],
-                timer_label=f"[FPTAS ε={eps}]"
-            )
+            res = run_algorithm_generic(fptas, "FPTAS", instance_name,
+                                        values, weights, capacity,
+                                        bb_optimal, n_items, capacity_instance,
+                                        extra_args=[eps],
+                                        timer_label=f"[FPTAS ε={eps}]")
         elif algo_name == 'BB':
-            res = run_algorithm_generic(
-                branch_and_bound, "Branch & Bound", instance_name, values, weights, capacity,
-                bb_optimal, n_items, capacity_instance
-            )
+            res = run_algorithm_generic(branch_and_bound, "Branch & Bound", instance_name,
+                                        values, weights, capacity,
+                                        bb_optimal, n_items, capacity_instance)
         elif algo_name == 'Backtracking':
-            res = run_algorithm_generic(
-                backtracking, "Backtracking", instance_name, values, weights, capacity,
-                bb_optimal, n_items, capacity_instance
-            )
+            res = run_algorithm_generic(backtracking, "Backtracking", instance_name,
+                                        values, weights, capacity,
+                                        bb_optimal, n_items, capacity_instance)
         else:
             res = None
 
@@ -122,6 +152,44 @@ def run_with_timeout(algo_name, epsilon, *args):
         return result_queue.get()
 
 
+# ----------------------------------------
+# Processamento de instância
+# ----------------------------------------
+
+def run_all_algorithms(instance_name, values, weights, capacity,
+                       bb_optimal, n_items, capacity_instance, result_queue):
+    """
+    Executa todos os algoritmos para uma instância.
+    """
+    algorithms_to_run = [('2-Approx', None)]
+    for eps in [4, 2, 1, 0.5, 0.25]:
+        algorithms_to_run.append(('FPTAS', eps))
+    algorithms_to_run.extend([('BB', None), ('Backtracking', None)])
+
+    for algo_name, eps in algorithms_to_run:
+        res = run_with_timeout(
+            algo_name, eps,
+            instance_name, values, weights, capacity,
+            bb_optimal, n_items, capacity_instance
+        )
+
+        if res is None:
+            print_result_row(algo_name, eps, 'NA', 'NA', 'NA', 'NA')
+            result_queue.put({
+                'Instance': instance_name,
+                'Items': n_items,
+                'Capacity': capacity_instance,
+                'Algorithm': algo_name if eps is None else f'FPTAS (eps={eps})',
+                'Value': 'NA',
+                'Optimal': bb_optimal,
+                'Approx Factor': 'NA',
+                'Time (s)': 'NA',
+                'Memory (MB)': 'NA'
+            })
+        else:
+            result_queue.put(res)
+
+
 def process_instance(filename, directory, opt_directory, single_instance, result_queue):
     """
     Processa uma única instância (low ou large scale).
@@ -134,61 +202,26 @@ def process_instance(filename, directory, opt_directory, single_instance, result
             return
 
         bb_optimal = get_optimal(instance_name, opt_directory, directory)
+        instance_type = "LARGE SCALE" if filename.endswith('_items.csv') else "LOW DIMENSIONAL"
 
-        num_hyphens = 100
-        if filename.endswith('_items.csv'):
-            print("\n\nLARGE SCALE")
-        else:
-            print("\n\nLOW DIMENSIONAL")
-        print("=" * num_hyphens)
-        print(f"N_Items = {n_items}")
-        print(f"W_Max   = {capacity_instance}")
-        if bb_optimal is not None:
-            print(f"Optimum = {bb_optimal:.0f}")
-        print("=" * num_hyphens)
-        print()
-
+        print_instance_banner(instance_type, n_items, capacity_instance, bb_optimal)
         values, weights, capacity = load_instance_file(filename, directory)
+
         print_table_header()
         print()
 
-        # Algoritmos a rodar
-        algorithms_to_run = [('2-Approx', None)]
-        for eps in [4, 2, 1, 0.5, 0.25]:
-            algorithms_to_run.append(('FPTAS', eps))
-        algorithms_to_run.extend([('BB', None), ('Backtracking', None)])
-
-        for algo_name, eps in algorithms_to_run:
-            res = run_with_timeout(
-                algo_name, eps,
-                instance_name, values, weights, capacity,
-                bb_optimal, n_items, capacity_instance
-            )
-
-            if res is None:
-                sys.stdout.write('\r' + ' ' * 100 + '\r')
-                sys.stdout.flush()
-                eps_str = f"{eps:8.2f}" if eps is not None else " " * 8
-                print(f"{algo_name:>20} {eps_str} {'NA':>8} {'NA':>10} {'NA':>10} {'NA':>8}")
-                result_queue.put({
-                    'Instance': instance_name,
-                    'Items': n_items,
-                    'Capacity': capacity_instance,
-                    'Algorithm': algo_name if eps is None else f'FPTAS (eps={eps})',
-                    'Value': 'NA',
-                    'Optimal': bb_optimal,
-                    'Approx Factor': 'NA',
-                    'Time (s)': 'NA',
-                    'Memory (MB)': 'NA'
-                })
-            else:
-                result_queue.put(res)
+        run_all_algorithms(instance_name, values, weights, capacity,
+                           bb_optimal, n_items, capacity_instance, result_queue)
 
         print()
 
     except Exception as e:
         print(f"[{filename}] ERRO: {e}")
 
+
+# ----------------------------------------
+# Loop principal
+# ----------------------------------------
 
 def evaluate_instances(directory, opt_directory=None, single_instance=None):
     """
@@ -203,15 +236,13 @@ def evaluate_instances(directory, opt_directory=None, single_instance=None):
         if not (is_large_scale or is_low_dimensional):
             continue
 
-        if is_large_scale:
-            instance_name = filename.replace('_items.csv', '')
-        else:
-            instance_name = filename
-
+        instance_name = filename.replace('_items.csv', '') if is_large_scale else filename
         n_items, capacity_instance = parse_instance_name(instance_name)
-        sort_key = (n_items if n_items is not None else float('inf'),
-                    capacity_instance if capacity_instance is not None else float('inf'),
-                    instance_name)
+        sort_key = (
+            n_items if n_items is not None else float('inf'),
+            capacity_instance if capacity_instance is not None else float('inf'),
+            instance_name
+        )
         all_files.append((sort_key, filename))
 
     all_files.sort()
