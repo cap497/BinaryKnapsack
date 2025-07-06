@@ -8,6 +8,23 @@ import argparse
 import multiprocessing
 import threading
 
+def run_algorithm(algo_name, eps, instance_name, values, weights, capacity, bb_optimal, n_items, capacity_instance, queue):
+    try:
+        if algo_name == '2-Approx':
+            res = run_2approx(instance_name, values, weights, capacity, bb_optimal, n_items, capacity_instance)
+        elif algo_name == 'FPTAS':
+            res = run_fptas(instance_name, values, weights, capacity, eps, bb_optimal, n_items, capacity_instance)
+        elif algo_name == 'BB':
+            res = run_branch_and_bound(instance_name, values, weights, capacity, bb_optimal, n_items, capacity_instance)
+        elif algo_name == 'Backtracking':
+            res = run_backtracking(instance_name, values, weights, capacity, bb_optimal, n_items, capacity_instance)
+        else:
+            res = None
+        if res:
+            queue.put(res)
+    except Exception as e:
+        print(f"[{instance_name}] ERRO em {algo_name}: {e}")
+
 # ============================
 # Funções de Leitura
 # ============================
@@ -186,10 +203,10 @@ def backtracking(values, weights, capacity):
 # Execução de Algoritmos Individuais
 # ============================
 
-def run_2approx(instance_name, values, weights, capacity, bb_optimal):
+def run_2approx(instance_name, values, weights, capacity, bb_optimal, n_items, capacity_instance):
     gc.collect()
     stop_event = threading.Event()
-    timer_thread = threading.Thread(target=start_timer, args=(f"[{instance_name} - 2-Approx]", stop_event))
+    timer_thread = threading.Thread(target=start_timer, args=(f"[Items={n_items}, Capacity={capacity_instance} - 2-Approx]", stop_event))
     timer_thread.start()
 
     try:
@@ -201,7 +218,7 @@ def run_2approx(instance_name, values, weights, capacity, bb_optimal):
         timer_thread.join()
         sys.stdout.write('\r' + ' ' * 80 + '\r')
         sys.stdout.flush()
-        print(f"\n[{instance_name}] Execução interrompida pelo usuário (Ctrl+C) durante 2-Approx.\n")
+        print("\nExecução interrompida pelo usuário (Ctrl+C) durante 2-Approx.\n")
         raise
 
     stop_event.set()
@@ -209,10 +226,12 @@ def run_2approx(instance_name, values, weights, capacity, bb_optimal):
 
     approx_factor = (bb_optimal / approx_value) if (bb_optimal is not None and approx_value > 0) else None
 
-    print(f"[{instance_name}]\t         2-Approx: \tVal = {approx_value:10.2f},   Time = {approx_time:6.2f}s,   Mem = {approx_memory:6.2f}MB,   Approx = {approx_factor:.2f}")
+    print(f"{'2-Approx':>20} {'':>8} {approx_value:8.0f} {approx_time:10.2f} {approx_memory:10.2f} {approx_factor:8.2f}")
 
     return {
         'Instance': instance_name,
+        'Items': n_items,
+        'Capacity': capacity_instance,
         'Algorithm': '2-Approx',
         'Value': approx_value,
         'Optimal': bb_optimal,
@@ -221,10 +240,10 @@ def run_2approx(instance_name, values, weights, capacity, bb_optimal):
         'Memory (MB)': approx_memory
     }
 
-def run_fptas(instance_name, values, weights, capacity, epsilon, bb_optimal):
+def run_fptas(instance_name, values, weights, capacity, epsilon, bb_optimal, n_items, capacity_instance):
     gc.collect()
     stop_event = threading.Event()
-    timer_thread = threading.Thread(target=start_timer, args=(f"[{instance_name} - FPTAS ε={epsilon}]", stop_event))
+    timer_thread = threading.Thread(target=start_timer, args=(f"[Items={n_items}, Capacity={capacity_instance} - FPTAS ε={epsilon}]", stop_event))
     timer_thread.start()
 
     try:
@@ -236,7 +255,7 @@ def run_fptas(instance_name, values, weights, capacity, epsilon, bb_optimal):
         timer_thread.join()
         sys.stdout.write('\r' + ' ' * 80 + '\r')
         sys.stdout.flush()
-        print(f"\n[{instance_name}] Execução interrompida pelo usuário (Ctrl+C) durante FPTAS (ε={epsilon}).\n")
+        print("\nExecução interrompida pelo usuário (Ctrl+C) durante FPTAS.\n")
         raise
 
     stop_event.set()
@@ -244,10 +263,12 @@ def run_fptas(instance_name, values, weights, capacity, epsilon, bb_optimal):
 
     approx_factor = (bb_optimal / fptas_value) if (bb_optimal is not None and fptas_value > 0) else None
 
-    print(f"[{instance_name}]\t FPTAS (eps={epsilon:.2f}): \tVal = {fptas_value:10.2f},   Time = {fptas_time:6.2f}s,   Mem = {fptas_memory:6.2f}MB,   Approx = {approx_factor:.2f}")
+    print(f"{'FPTAS':>20} {epsilon:8.2f} {fptas_value:8.0f} {fptas_time:10.2f} {fptas_memory:10.2f} {approx_factor:8.2f}")
 
     return {
         'Instance': instance_name,
+        'Items': n_items,
+        'Capacity': capacity_instance,
         'Algorithm': f'FPTAS (eps={epsilon})',
         'Value': fptas_value,
         'Optimal': bb_optimal,
@@ -256,12 +277,10 @@ def run_fptas(instance_name, values, weights, capacity, epsilon, bb_optimal):
         'Memory (MB)': fptas_memory
     }
 
-def run_branch_and_bound(instance_name, values, weights, capacity, bb_optimal):
+def run_branch_and_bound(instance_name, values, weights, capacity, bb_optimal, n_items, capacity_instance):
     gc.collect()
-
-    # Inicia o cronômetro em uma thread separada
     stop_event = threading.Event()
-    timer_thread = threading.Thread(target=start_timer, args=(f"[{instance_name} - BB]", stop_event))
+    timer_thread = threading.Thread(target=start_timer, args=(f"[Items={n_items}, Capacity={capacity_instance} - BB]", stop_event))
     timer_thread.start()
 
     try:
@@ -271,23 +290,23 @@ def run_branch_and_bound(instance_name, values, weights, capacity, bb_optimal):
     except KeyboardInterrupt:
         stop_event.set()
         timer_thread.join()
-        # Limpa a linha pendente
         sys.stdout.write('\r' + ' ' * 80 + '\r')
         sys.stdout.flush()
-        print(f"\n[{instance_name}] Execução interrompida pelo usuário (Ctrl+C) durante BB.\n")
-        raise  # Repassa o KeyboardInterrupt para o processo pai (se quiser manter o comportamento padrão)
+        print("\nExecução interrompida pelo usuário (Ctrl+C) durante BB.\n")
+        raise
 
-    # Para o cronômetro
     stop_event.set()
     timer_thread.join()
 
     approx_factor = (bb_optimal / bb_value) if (bb_optimal is not None and bb_value > 0) else None
 
-    print(f"[{instance_name}]\t   Branch & Bound: \tVal = {bb_value:10.2f},   Time = {bb_time:6.2f}s,   Mem = {bb_memory:6.2f}MB,   Approx = {approx_factor:.2f}")
+    print(f"{'Branch & Bound':>20} {'':>8} {bb_value:8.0f} {bb_time:10.2f} {bb_memory:10.2f} {approx_factor:8.2f}")
 
     return {
         'Instance': instance_name,
-        'Algorithm': f'BB',
+        'Items': n_items,
+        'Capacity': capacity_instance,
+        'Algorithm': 'BB',
         'Value': bb_value,
         'Optimal': bb_optimal,
         'Approx Factor': approx_factor,
@@ -295,13 +314,10 @@ def run_branch_and_bound(instance_name, values, weights, capacity, bb_optimal):
         'Memory (MB)': bb_memory
     }
 
-def run_backtracking(instance_name, values, weights, capacity, bb_optimal):
-    import gc
+def run_backtracking(instance_name, values, weights, capacity, bb_optimal, n_items, capacity_instance):
     gc.collect()
-
-    # Inicia o cronômetro em uma thread separada
     stop_event = threading.Event()
-    timer_thread = threading.Thread(target=start_timer, args=(f"[{instance_name} - Backtracking]", stop_event))
+    timer_thread = threading.Thread(target=start_timer, args=(f"[Items={n_items}, Capacity={capacity_instance} - Backtracking]", stop_event))
     timer_thread.start()
 
     try:
@@ -313,20 +329,20 @@ def run_backtracking(instance_name, values, weights, capacity, bb_optimal):
         timer_thread.join()
         sys.stdout.write('\r' + ' ' * 80 + '\r')
         sys.stdout.flush()
-        print(f"\n[{instance_name}] Execução interrompida pelo usuário (Ctrl+C) durante Backtracking.\n")
+        print("\nExecução interrompida pelo usuário (Ctrl+C) durante Backtracking.\n")
         raise
 
-    # Para o cronômetro
     stop_event.set()
     timer_thread.join()
 
-    # Calcula fator de aproximação se possível
     approx_factor = (bb_optimal / bt_value) if (bb_optimal is not None and bt_value > 0) else None
 
-    print(f"[{instance_name}]\t     Backtracking: \tVal = {bt_value:10.2f},   Time = {bt_time:6.2f}s,   Mem = {bt_memory:6.2f}MB,   Approx = {approx_factor:.2f}")
+    print(f"{'Backtracking':>20} {'':>8} {bt_value:8.0f} {bt_time:10.2f} {bt_memory:10.2f} {approx_factor:8.2f}")
 
     return {
         'Instance': instance_name,
+        'Items': n_items,
+        'Capacity': capacity_instance,
         'Algorithm': 'Backtracking',
         'Value': bt_value,
         'Optimal': bb_optimal,
@@ -354,42 +370,85 @@ def process_instance(filename, directory, opt_directory, single_instance, result
     try:
         full_path = os.path.join(directory, filename)
 
-        print("\n" + "=" * 50)
+        num_hyphens = 100
+
         if filename.endswith('_items.csv'):
+            # LARGE SCALE
             instance_name = filename.replace('_items.csv', '')
+            parts = instance_name.split('_')
+            try:
+                n_items = int(parts[-3])
+                capacity_instance = int(parts[-2])
+            except (IndexError, ValueError):
+                n_items = None
+                capacity_instance = None
+
             if single_instance and instance_name != single_instance:
                 return
-            print(f"[{instance_name}] LARGE SCALE")
+
+            print("\n\nLARGE SCALE")
+            print("=" * num_hyphens)
+            print(f"N_Items = {n_items}")
+            print(f"W_Max   = {capacity_instance}")
+
+            bb_optimal = get_optimal(instance_name, opt_directory, directory)
+            if bb_optimal is not None:
+                print(f"Optimum = {bb_optimal:.0f}")
+            print("=" * num_hyphens)
+
             values, weights, capacity = read_instance(full_path)
+
         elif not filename.endswith('.csv'):
+            # LOW DIMENSIONAL
             instance_name = filename
+            parts = instance_name.split('_')
+            try:
+                n_items = int(parts[-2])
+                capacity_instance = int(parts[-1])
+            except (IndexError, ValueError):
+                n_items = None
+                capacity_instance = None
+
             if single_instance and instance_name != single_instance:
                 return
-            print(f"[{instance_name}] LOW DIMENSIONAL")
+
+            print("\n\nLOW DIMENSIONAL")
+            print("=" * num_hyphens)
+            print(f"N_Items = {n_items}")
+            print(f"W_Max   = {capacity_instance}")
+
+            bb_optimal = get_optimal(instance_name, opt_directory, directory)
+            if bb_optimal is not None:
+                print(f"Optimum = {bb_optimal:.0f}")
+            print("=" * num_hyphens)
+
             values, weights, capacity = read_text(full_path)
         else:
             return
 
-        bb_optimal = get_optimal(instance_name, opt_directory, directory)
-        if bb_optimal is not None:
-            print(f"[{instance_name}]\t \t\t\tOpt = {bb_optimal:10.2f}")
+        print()
+        # === Print header line once ===
+        print(f"{'Algorithm':>20} {'Eps':>8} {'Value':>8} {'Time (s)':>10} {'Mem (MB)':>10} {'Approx':>8}")
+        print()
 
-        # === Executa 2-Approx ===
-        result = run_2approx(instance_name, values, weights, capacity, bb_optimal)
+        # === 2-Approx ===
+        result = run_2approx(instance_name, values, weights, capacity, bb_optimal, n_items, capacity_instance)
         result_queue.put(result)
 
-        # === Executa FPTAS com diferentes epsilons ===
-        for epsilon in [3, 2, 1, 0.5, 0.25]:
-            result = run_fptas(instance_name, values, weights, capacity, epsilon, bb_optimal)
+        # === FPTAS ===
+        for epsilon in [4, 2, 1, 0.5, 0.25]:
+            result = run_fptas(instance_name, values, weights, capacity, epsilon, bb_optimal, n_items, capacity_instance)
             result_queue.put(result)
 
-        # === Executa Branch-and-Bound ===
-        result = run_branch_and_bound(instance_name, values, weights, capacity, bb_optimal)
+        # === Branch-and-Bound ===
+        result = run_branch_and_bound(instance_name, values, weights, capacity, bb_optimal, n_items, capacity_instance)
         result_queue.put(result)
 
-        # === Executa Backtracking ===
-        result = run_backtracking(instance_name, values, weights, capacity, bb_optimal)
+        # === Backtracking ===
+        result = run_backtracking(instance_name, values, weights, capacity, bb_optimal, n_items, capacity_instance)
         result_queue.put(result)
+
+        print()
 
     except Exception as e:
         print(f"[{filename}] ERRO: {e}")
@@ -398,33 +457,134 @@ def process_instance(filename, directory, opt_directory, single_instance, result
 # Avaliação de Instâncias
 # ============================
 
-def evaluate_instances(directory, opt_directory = None, single_instance = None):
+def evaluate_instances(directory, opt_directory=None, single_instance=None):
     results = []
-    TIME_LIMIT = 180  # Tempo limite de 30 minutos
+    TIME_LIMIT = 1800  # Tempo limmite
 
+    all_files = []
     for filename in os.listdir(directory):
         is_large_scale = filename.endswith('_items.csv')
         is_low_dimensional = not filename.endswith('.csv')
         if not (is_large_scale or is_low_dimensional):
             continue
 
-        result_queue = multiprocessing.Queue()
-        p = multiprocessing.Process(target=process_instance, args=(filename, directory, opt_directory, single_instance, result_queue))
-        p.start()
-        p.join(TIME_LIMIT)
+        instance_index = None
+        n_items = None
+        capacity_instance = None
 
-        if p.is_alive():
-            instance_name = filename.replace('_items.csv', '') if is_large_scale else filename
-            print(f"\n[{instance_name}] TIMEOUT: Excedeu o limite de {int(TIME_LIMIT/60)} minutos. Processo abortado.")
-            p.terminate()
-            p.join()
+        if is_large_scale:
+            instance_name = filename.replace('_items.csv', '')
+            parts = instance_name.split('_')
+            try:
+                instance_index = int(parts[1])
+                n_items = int(parts[-3])
+                capacity_instance = int(parts[-2])
+            except (IndexError, ValueError):
+                instance_index = float('inf')
+                n_items = float('inf')
+                capacity_instance = float('inf')
         else:
-            while not result_queue.empty():
-                results.append(result_queue.get())
+            instance_name = filename
+            try:
+                instance_index = int(instance_name.split('_')[0][1:])
+                parts = instance_name.split('_')
+                n_items = int(parts[-2])
+                capacity_instance = int(parts[-1])
+            except (IndexError, ValueError):
+                instance_index = float('inf')
+                n_items = float('inf')
+                capacity_instance = float('inf')
+
+        all_files.append((n_items, capacity_instance, instance_index, filename))
+
+    all_files.sort()
+
+    for n_items, capacity_instance, _, filename in all_files:
+        instance_name = filename.replace('_items.csv', '') if filename.endswith('_items.csv') else filename
+
+        if filename.endswith('_items.csv'):
+            values, weights, capacity = read_instance(os.path.join(directory, filename))
+        else:
+            values, weights, capacity = read_text(os.path.join(directory, filename))
+
+        bb_optimal = get_optimal(instance_name, opt_directory, directory)
+
+        print("\n\n" + ("LARGE SCALE" if filename.endswith('_items.csv') else "LOW DIMENSIONAL"))
+        print("=" * 100)
+        print(f"N_Items = {n_items}")
+        print(f"W_Max   = {capacity_instance}")
+        if bb_optimal is not None:
+            print(f"Optimum = {bb_optimal:.0f}")
+        print("=" * 100)
+        print()
+        print(f"{'Algorithm':>20} {'Eps':>8} {'Value':>8} {'Time (s)':>10} {'Mem (MB)':>10} {'Approx':>8}")
+        print()
+
+        algorithms_to_run = [('2-Approx', None)]
+        for eps in [4, 2, 1, 0.5, 0.25]:
+            algorithms_to_run.append(('FPTAS', eps))
+        algorithms_to_run.append(('BB', None))
+        algorithms_to_run.append(('Backtracking', None))
+
+        for algo_name, eps in algorithms_to_run:
+            result_queue = multiprocessing.Queue()
+            p = multiprocessing.Process(
+                target=run_algorithm,
+                args=(algo_name, eps, instance_name, values, weights, capacity,
+                    bb_optimal, n_items, capacity_instance, result_queue)
+            )
+            p.start()
+            p.join(TIME_LIMIT)
+
+            if p.is_alive():
+                p.terminate()
+                p.join()
+
+                # Limpa linha do timer antes de printar NA
+                sys.stdout.write('\r' + ' ' * 100 + '\r')
+                sys.stdout.flush()
+
+                print(f"{algo_name:>20} {('' if eps is None else f'{eps:.2f}'):>8} {'NA':>8} {'NA':>10} {'NA':>10} {'NA':>8}")
+
+                results.append({
+                    'Instance': instance_name,
+                    'Items': n_items,
+                    'Capacity': capacity_instance,
+                    'Algorithm': algo_name if algo_name != 'FPTAS' else f'FPTAS (eps={eps})',
+                    'Value': 'NA',
+                    'Optimal': bb_optimal,
+                    'Approx Factor': 'NA',
+                    'Time (s)': 'NA',
+                    'Memory (MB)': 'NA'
+                })
+
+            elif result_queue.empty():
+                sys.stdout.write('\r' + ' ' * 100 + '\r')
+                sys.stdout.flush()
+
+                print(f"{algo_name:>20} {('' if eps is None else f'{eps:.2f}'):>8} {'NA':>8} {'NA':>10} {'NA':>10} {'NA':>8}")
+
+                results.append({
+                    'Instance': instance_name,
+                    'Items': n_items,
+                    'Capacity': capacity_instance,
+                    'Algorithm': algo_name if algo_name != 'FPTAS' else f'FPTAS (eps={eps})',
+                    'Value': 'NA',
+                    'Optimal': bb_optimal,
+                    'Approx Factor': 'NA',
+                    'Time (s)': 'NA',
+                    'Memory (MB)': 'NA'
+                })
+
+            else:
+                res = result_queue.get()
+                results.append(res)
+
+        print()
 
     output_csv = f"results_{os.path.basename(directory)}.csv"
     with open(output_csv, 'w', newline='') as f:
-        fieldnames = ['Instance', 'Algorithm', 'Value', 'Optimal', 'Approx Factor', 'Time (s)', 'Memory (MB)']
+        fieldnames = ['Instance', 'Items', 'Capacity', 'Algorithm', 'Value', 'Optimal', 'Approx Factor', 'Time (s)', 'Memory (MB)']
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for result in results:
