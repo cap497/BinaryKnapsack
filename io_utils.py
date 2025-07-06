@@ -74,8 +74,8 @@ def parse_instance_name(instance_name):
             capacity = int(parts[3])
         else:
             # Low-dimensional padrão: f3_l-d_kp_4_20
-            n_items = int(parts[-3])
-            capacity = int(parts[-2])
+            n_items = int(parts[-2])
+            capacity = int(parts[-1])
         return n_items, capacity
     except (IndexError, ValueError):
         return None, None
