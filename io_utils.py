@@ -68,8 +68,8 @@ def parse_instance_name(instance_name):
     """
     parts = instance_name.split('_')
     try:
-        if instance_name.endswith('_items'):
-            # Large-scale padrão: knapPI_1_500_1000_1_items
+        if parts[0].startswith('knapPI') and len(parts) >= 5:
+            # Large-scale padrão: knapPI_1_500_1000_1
             n_items = int(parts[2])
             capacity = int(parts[3])
         else:
@@ -96,10 +96,17 @@ def save_results_csv(results, output_csv):
     """
     Salva os resultados em CSV.
     """
+    fieldnames = ['Instance', 'Items', 'Capacity', 'Algorithm', 'Value',
+                   'Optimal', 'Approx Factor', 'Time (s)', 'Memory (MB)']
+
+    def fmt(v):
+        if isinstance(v, float):
+            return f"{v:.2f}"
+        return v
+
     with open(output_csv, 'w', newline='') as f:
-        fieldnames = ['Instance', 'Items', 'Capacity', 'Algorithm', 'Value',
-                       'Optimal', 'Approx Factor', 'Time (s)', 'Memory (MB)']
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for result in results:
-            writer.writerow(result)
+            formatted_result = {k: fmt(result[k]) for k in fieldnames}
+            writer.writerow(formatted_result)
