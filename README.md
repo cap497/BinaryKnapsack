@@ -1,4 +1,4 @@
-# Knapsack Solver
+# Binary Knapsack Problem
 
 Este projeto implementa vários algoritmos para resolver o problema da mochila 0-1 (0/1 Knapsack Problem), incluindo heurísticas aproximadas e métodos exatos. Suporta avaliação em conjuntos de instâncias **low-dimensional** (pequenas) e **large-scale** (grandes), com medição de tempo e uso de memória.
 
