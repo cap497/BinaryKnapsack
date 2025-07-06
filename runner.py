@@ -16,7 +16,7 @@ from io_utils import (
 )
 from utils import start_timer, print_table_header
 
-TIME_LIMIT = 60  # segundos
+TIME_LIMIT = 1800  # segundos
 
 def run_algorithm_generic(algorithm_func, algo_name, instance_name, values, weights, capacity,
                           bb_optimal, n_items, capacity_instance,
