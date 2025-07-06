@@ -3,3 +3,6 @@ tp2env/
 
 # PDF
 tp2.pdf
+
+# PyCache
+__pycache__/
