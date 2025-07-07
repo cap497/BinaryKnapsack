@@ -2,20 +2,26 @@ import time
 import psutil
 import os
 
+"""
+Algoritmos para a mochila 0-1:
+1. 2-Aproximado
+2. FPTAS (Fully Polynomial-Time Approximation Scheme)
+3. Branch and Bound
+4. Backtracking
+
+Todos os algoritmos retornam:
+- Valor total
+- Vetor de solução (0 ou 1 para cada item)
+- Tempo de execução
+- Uso de memória em MB
+"""
+
 def new_2approx(values, weights, capacity):
     """
-    Algoritmo 2-Approximation para o problema da mochila 0-1.
-    
-    Estratégia:
+    2-Aproximado:
     - Ordena os itens por valor/peso em ordem decrescente.
     - Inclui o máximo possível dentro da capacidade.
     - Aproximação com fator no máximo 2.
-    
-    Retorna:
-    - Valor total
-    - Vetor de solução (0 ou 1 para cada item)
-    - Tempo de execução
-    - Uso de memória em MB
     """
     n = len(values)
     if n == 0 or capacity <= 0:
@@ -48,20 +54,12 @@ def new_2approx(values, weights, capacity):
 
 def fptas(values, weights, capacity, epsilon):
     """
-    FPTAS (Fully Polynomial-Time Approximation Scheme) para a mochila 0-1.
-    
-    Estratégia:
+    FPTAS:
     - Escala os valores para reduzir o tamanho da tabela de programação dinâmica.
     - Usa aproximação controlada por epsilon.
     
     Parâmetro:
     - epsilon: fator de precisão.
-    
-    Retorna:
-    - Valor total aproximado
-    - Vetor de solução (0 ou 1)
-    - Tempo de execução
-    - Uso de memória em MB
     """
     n = len(values)
     start_time = time.time()
@@ -102,17 +100,9 @@ def fptas(values, weights, capacity, epsilon):
 
 def branch_and_bound(values, weights, capacity):
     """
-    Algoritmo Branch and Bound para a mochila 0-1.
-    
-    Estratégia:
+    Branch and Bound:
     - Ordena itens por valor/peso.
     - Usa DFS com poda por estimativa de bound.
-    
-    Retorna:
-    - Melhor valor encontrado
-    - Vetor de solução
-    - Tempo de execução
-    - Uso de memória em MB
     """
     n = len(values)
     items = sorted(range(n), key=lambda i: values[i] / weights[i], reverse=True)
@@ -179,17 +169,9 @@ def branch_and_bound(values, weights, capacity):
 
 def backtracking(values, weights, capacity):
     """
-    Algoritmo Backtracking puro para a mochila 0-1.
-    
-    Estratégia:
+    Backtracking:
     - Explora todas as combinações via DFS.
     - Sem poda por bound.
-    
-    Retorna:
-    - Melhor valor encontrado
-    - Vetor de solução
-    - Tempo de execução
-    - Uso de memória em MB
     """
     n = len(values)
     best_value = 0
